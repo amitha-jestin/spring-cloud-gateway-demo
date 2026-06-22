@@ -1,0 +1,100 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Booking Service — Kubernetes Manifests
+# Apply: kubectl apply -f k8s/booking-service/
+# ─────────────────────────────────────────────────────────────────────────────
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: booking-service-config
+  namespace: gateway-demo
+data:
+  APP_ENV: "local"
+  OTEL_ENDPOINT: "http://tempo:4317"
+  LOKI_URL: "http://loki:3100"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service
+  namespace: gateway-demo
+  labels:
+    app: booking-service
+    version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: booking-service
+  template:
+    metadata:
+      labels:
+        app: booking-service
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "9001"
+    spec:
+      containers:
+        - name: booking-service
+          image: amithapoulose/booking-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9001
+          envFrom:
+            - configMapRef: { name: booking-service-config }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 9001 }
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 9001 }
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { memory: "256Mi", cpu: "250m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+
+---
+# ClusterIP only — booking service is NEVER exposed directly to the internet
+# All traffic must flow through the API Gateway
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-service
+  namespace: gateway-demo
+  labels:
+    app: booking-service
+spec:
+  type: ClusterIP
+  selector:
+    app: booking-service
+  ports:
+    - name: http
+      port: 9001
+      targetPort: 9001
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: booking-service-hpa
+  namespace: gateway-demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: booking-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

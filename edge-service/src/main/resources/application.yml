@@ -1,0 +1,133 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  # Provider-agnostic OIDC — change JWKS_URI + ISSUER_URI to switch providers
+  # Keycloak:  http://keycloak:8180/realms/{realm}/protocol/openid-connect/certs
+  # Cognito:   https://cognito-idp.{region}.amazonaws.com/{poolId}/.well-known/jwks.json
+  # Entra ID:  https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWKS_URI:http://localhost:8180/realms/demo-realm/protocol/openid-connect/certs}
+          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/demo-realm}
+
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 10s
+      routes:
+        # Booking service — full cross-cutting concern stack
+        - id: booking-service
+          uri: ${BOOKING_SERVICE_URL:http://localhost:9001}
+          predicates:
+            - Path=/booking/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 200
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+            - name: CircuitBreaker
+              args:
+                name: booking-service-cb
+                fallbackUri: forward:/fallback/booking
+            - name: Retry
+              args:
+                retries: 3
+                methods: GET
+                statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 1000ms
+                  factor: 2
+
+        # Public route — no auth, still rate limited
+        - id: public-api
+          uri: ${PUBLIC_SERVICE_URL:http://localhost:8080}
+          predicates:
+            - Path=/public/**
+          filters:
+            - RewritePath=/public/(?<segment>.*), /mock/public/${segment}
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+                key-resolver: "#{@userKeyResolver}"
+
+security:
+  jwt:
+    jwk-set-uri: ${JWKS_URI:http://localhost:8180/realms/demo-realm/protocol/openid-connect/certs}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      booking-service-cb:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 3s
+        slow-call-rate-threshold: 50
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+  timelimiter:
+    instances:
+      booking-service-cb:
+        timeout-duration: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,circuitbreakers,ratelimiters
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${APP_ENV:local}
+  tracing:
+    sampling:
+      probability: 1.0
+    propagation:
+      type: w3c
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    root: INFO
+    com.amithapoulose.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
+    org.springframework.security: WARN
+    io.lettuce.core: WARN
+    io.github.resilience4j: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [traceId=%X{traceId},spanId=%X{spanId}] %logger{36} - %msg%n"
