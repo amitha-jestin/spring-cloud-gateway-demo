@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-service-config
+  namespace: gateway-demo
+data:
+  OTEL_SERVICE_NAME: "edge-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_LOGS_EXPORTER: "otlp"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_METRIC_EXPORT_INTERVAL: "15000"
+  BOOKING_SERVICE_URL: "http://booking-service:9001"
+  JWKS_URI: "http://keycloak:8080/realms/demo-realm/protocol/openid-connect/certs"
+  ISSUER_URI: "http://localhost:30180/realms/demo-realm"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"

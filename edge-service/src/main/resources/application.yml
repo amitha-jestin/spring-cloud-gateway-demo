@@ -3,28 +3,22 @@ server:
 
 spring:
   application:
-    name: api-gateway
+    name: edge-service
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
 
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:redis}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 2000ms
-
-  # Provider-agnostic OIDC — change JWKS_URI + ISSUER_URI to switch providers
-  # Keycloak:  http://keycloak:8180/realms/{realm}/protocol/openid-connect/certs
-  # Cognito:   https://cognito-idp.{region}.amazonaws.com/{poolId}/.well-known/jwks.json
-  # Entra ID:  https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
   security:
     oauth2:
       resourceserver:
         jwt:
-          jwk-set-uri: ${JWKS_URI:http://localhost:8180/realms/demo-realm/protocol/openid-connect/certs}
-          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/demo-realm}
-
+          jwk-set-uri: ${JWKS_URI:http://keycloak:8180/realms/demo-realm/protocol/openid-connect/certs}
+          issuer-uri: ${ISSUER_URI:http://localhost:30180/realms/demo-realm}
   cloud:
     gateway:
       default-filters:
@@ -41,8 +35,8 @@ spring:
           filters:
             - name: RequestRateLimiter
               args:
-                redis-rate-limiter.replenishRate: 100
-                redis-rate-limiter.burstCapacity: 200
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 4
                 redis-rate-limiter.requestedTokens: 1
                 key-resolver: "#{@userKeyResolver}"
             - name: CircuitBreaker
@@ -58,24 +52,6 @@ spring:
                   firstBackoff: 100ms
                   maxBackoff: 1000ms
                   factor: 2
-
-        # Public route — no auth, still rate limited
-        - id: public-api
-          uri: ${PUBLIC_SERVICE_URL:http://localhost:8080}
-          predicates:
-            - Path=/public/**
-          filters:
-            - RewritePath=/public/(?<segment>.*), /mock/public/${segment}
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 50
-                redis-rate-limiter.burstCapacity: 100
-                key-resolver: "#{@userKeyResolver}"
-
-security:
-  jwt:
-    jwk-set-uri: ${JWKS_URI:http://localhost:8180/realms/demo-realm/protocol/openid-connect/certs}
-
 resilience4j:
   circuitbreaker:
     instances:
@@ -118,15 +94,21 @@ management:
     propagation:
       type: w3c
   otlp:
-    tracing:
+    traces:
       endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+    logs:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/logs}
 
 logging:
   level:
     root: INFO
-    com.amithapoulose.gateway: DEBUG
-    org.springframework.cloud.gateway: INFO
-    org.springframework.security: WARN
+    org.springframework.cloud.gateway: TRACE
+    org.springframework.http.server.reactive: DEBUG
+    reactor.netty.http.server: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.security.oauth2: DEBUG
+    org.springframework.security.oauth2.jwt: DEBUG
+
     io.lettuce.core: WARN
     io.github.resilience4j: INFO
   pattern:

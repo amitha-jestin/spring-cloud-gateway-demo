@@ -1,142 +1,138 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Spring Cloud Gateway demo — Makefile
 #
-# make up              Start infra (Keycloak, Redis, Prometheus, Grafana, Loki, Tempo)
-# make build           Build all Java modules
-# make run-edge        Run edge-service
-# make run-booking     Run Booking Service
-# make test            Run tests
-# make clean           Clean builds and stop infra
-# make k8s-deploy      Deploy to minikube
+# make k8s-deploy      Deploy to Kubernetes
+# make k8s-delete      Remove all resources from Kubernetes
+# make k8s-status      Show pod/service status
 # make token           Get a test JWT from Keycloak
 # make help            Show all commands
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: help up down build run-gateway run-booking test clean \
-        logs logs-keycloak status \
+.PHONY: help \
         k8s-build k8s-deploy k8s-delete k8s-status \
-        open-grafana open-keycloak open-prometheus token token-admin
+        k8s-logs-edge-service k8s-logs-booking k8s-logs-keycloak \
+        k8s-logs-prometheus k8s-logs-grafana k8s-logs-redis \
+        k8s-logs-loki k8s-logs-tempo k8s-logs-otel-collector \
+        token token-admin
 
-ifeq ($(OS),Windows_NT)
-  OPEN := start
-  MVN  := mvnw.cmd
-else
-  UNAME := $(shell uname -s)
-  ifeq ($(UNAME),Darwin)
-    OPEN := open
-  else
-    OPEN := xdg-open
-  endif
-  MVN := ./mvnw
-endif
+
 
 GREEN  := \033[0;32m
 YELLOW := \033[0;33m
 BLUE   := \033[0;34m
 RESET  := \033[0m
 
-help: ## Show this help message
+# ── Help ──────────────────────────────────────────────────────────────────────
+
+help: ## Show all available commands
 	@echo ""
-	@echo "$(BLUE)Spring Cloud Gateway Demo — Commands$(RESET)"
-	@echo "──────────────────────────────────────────────────"
+	@echo "Spring Cloud Gateway Demo — Kubernetes"
+	@echo "======================================="
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-18s$(RESET) %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-35s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
-
-# ── Infrastructure ────────────────────────────────────────────────────────────
-
-up: ## Start all infrastructure (Keycloak, Redis, Prometheus, Grafana, Loki, Tempo)
-	@echo "$(BLUE)Starting infrastructure...$(RESET)"
-	docker compose up -d
-	@echo "$(GREEN)Started.$(RESET)"
-	@echo "  Keycloak Admin : http://localhost:8180  (admin / admin)"
-	@echo "  Grafana        : http://localhost:3001  (admin / admin)"
-	@echo "  Prometheus     : http://localhost:9090"
-	@echo "$(YELLOW)Wait ~60s for Keycloak to import the realm before starting services.$(RESET)"
-
-down: ## Stop all infrastructure
-	docker compose down
-
-down-volumes: ## Stop infra and delete all data volumes
-	docker compose down -v
-
-status: ## Show running containers
-	docker compose ps
-
-logs: ## Tail all infra logs
-	docker compose logs -f
-
-logs-keycloak: ## Tail Keycloak logs
-	docker compose logs -f keycloak
-
-# ── Java Build ────────────────────────────────────────────────────────────────
-
-build: ## Build all Java modules
-	$(MVN) clean package -DskipTests
-
-test: ## Run all tests
-	$(MVN) test
-
-clean-java: ## Clean Java build artifacts
-	$(MVN) clean
-
-# ── Run Services ─────────────────────────────────────────────────────────────
-
-run-edge: ## Run Edge Service (port 8080)
-	@echo "$(BLUE)Starting Edge Service on port 8080...$(RESET)"
-	java -jar edge-service/target/edge-service-1.0.0.jar
-
-run-booking: ## Run Booking Service (port 9001)
-	@echo "$(BLUE)Starting Booking Service on port 9001...$(RESET)"
-	java -jar booking-service/target/booking-service-1.0.0.jar
 
 # ── Kubernetes ────────────────────────────────────────────────────────────────
 
-k8s-build: build ## Build Docker images and load into minikube
-	docker build -f edge-service/Dockerfile -t amithapoulose/edge-service:latest .
-	docker build -f booking-service/Dockerfile -t amithapoulose/booking-service:latest .
-	minikube image load amithapoulose/edge-service:latest
-	minikube image load amithapoulose/booking-service:latest
-	@echo "$(GREEN)Images loaded into minikube.$(RESET)"
+k8s-build: ## Build Docker images
+	@echo "$(BLUE)Building Docker images...$(RESET)"
+	docker build -f edge-service/Dockerfile -t edge-service:latest .
+	docker build -f booking-service/Dockerfile -t booking-service:latest .
+	@echo "$(GREEN)✅ Images built$(RESET)"
 
-k8s-deploy: ## Deploy all services to minikube
-	kubectl apply -f k8s/namespace.yml
-	kubectl apply -f k8s/edge-service/
-	kubectl apply -f k8s/booking-service/
-	kubectl get pods -n gateway-demo
+k8s-deploy: k8s-build ## Build images and deploy all resources to Kubernetes
+	@echo "$(BLUE)Creating namespace...$(RESET)"
+	kubectl apply -f k8s/namespace/namespace.yaml
 
-k8s-status: ## Show Kubernetes pod/service/HPA status
-	kubectl get pods,services,hpa -n gateway-demo
+	@echo "$(BLUE)Applying secrets...$(RESET)"
+	kubectl apply -f k8s/secrets/app-secrets.yaml
+
+	@echo "$(BLUE)Applying configmaps...$(RESET)"
+	kubectl apply -f k8s/configmaps/
+
+	@echo "$(BLUE)Deploying infrastructure (redis, keycloak, loki, tempo, prometheus)...$(RESET)"
+	kubectl apply -f k8s/deployments/redis.yaml
+	kubectl apply -f k8s/deployments/keycloak.yaml
+	kubectl apply -f k8s/deployments/loki.yaml
+	kubectl apply -f k8s/deployments/tempo.yaml
+	kubectl apply -f k8s/deployments/prometheus.yaml
+
+	@echo "$(BLUE)Waiting for infrastructure to be ready...$(RESET)"
+	kubectl wait --for=condition=ready pod -l app=redis -n gateway-demo --timeout=180s
+	kubectl wait --for=condition=ready pod -l app=loki -n gateway-demo --timeout=180s
+	kubectl wait --for=condition=ready pod -l app=tempo -n gateway-demo --timeout=180s
+	kubectl wait --for=condition=ready pod -l app=prometheus -n gateway-demo --timeout=180s
+
+	@echo "$(BLUE)Deploying observability (grafana, otel-collector)...$(RESET)"
+	kubectl apply -f k8s/deployments/grafana.yaml
+	kubectl apply -f k8s/deployments/otel-collector.yaml
+
+	@echo "$(BLUE)Waiting for otel-collector to be ready...$(RESET)"
+	kubectl wait --for=condition=ready pod -l app=otel-collector -n gateway-demo --timeout=180s
+
+	@echo "$(BLUE)Deploying applications...$(RESET)"
+	kubectl apply -f k8s/deployments/booking-service.yaml
+	kubectl apply -f k8s/deployments/edge-service.yaml
+
+	@echo ""
+	@echo "$(GREEN)✅ Deployment complete!$(RESET)"
+	@echo ""
+	@echo "  Edge Service  → http://localhost:30080"
+	@echo "  Grafana       → http://localhost:30001"
+	@echo "  Keycloak      → http://localhost:30180"
+	@echo ""
 
 k8s-delete: ## Remove all resources from Kubernetes
+	@echo "$(YELLOW)Deleting namespace gateway-demo...$(RESET)"
 	kubectl delete namespace gateway-demo --ignore-not-found=true
+	@echo "$(GREEN)✅ Teardown complete$(RESET)"
 
-k8s-logs-gateway: ## Tail gateway pod logs
-	kubectl logs -f -l app=edge-service -n gateway-demo
+k8s-status: ## Show Kubernetes pod/service status
+	kubectl get pods,services -n gateway-demo
+
+k8s-restart-edge: ## Restart edge-service deployment
+	kubectl rollout restart deployment/edge-service -n gateway-demo
+
+k8s-restart-booking: ## Restart booking-service deployment
+	kubectl rollout restart deployment/booking-service -n gateway-demo
+
+k8s-restart-all: ## Restart all application deployments
+	kubectl rollout restart deployment/edge-service deployment/booking-service -n gateway-demo
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+
+k8s-logs-edge-service: ## Tail edge-service pod logs
+	kubectl logs -f deployment/edge-service -n gateway-demo
 
 k8s-logs-booking: ## Tail booking-service pod logs
-	kubectl logs -f -l app=booking-service -n gateway-demo
+	kubectl logs -f deployment/booking-service -n gateway-demo
 
-k8s-ingress: ## Enable minikube ingress addon
-	minikube addons enable ingress
-	@echo "$(YELLOW)Add to /etc/hosts: $$(minikube ip) gateway.local$(RESET)"
+k8s-logs-keycloak: ## Tail keycloak pod logs
+	kubectl logs -f deployment/keycloak -n gateway-demo
 
-# ── Browser shortcuts ─────────────────────────────────────────────────────────
+k8s-logs-prometheus: ## Tail prometheus pod logs
+	kubectl logs -f deployment/prometheus -n gateway-demo
 
-open-grafana: ## Open Grafana
-	$(OPEN) http://localhost:3001
+k8s-logs-grafana: ## Tail grafana pod logs
+	kubectl logs -f deployment/grafana -n gateway-demo
 
-open-keycloak: ## Open Keycloak admin console
-	$(OPEN) http://localhost:8180/admin
+k8s-logs-redis: ## Tail redis pod logs
+	kubectl logs -f deployment/redis -n gateway-demo
 
-open-prometheus: ## Open Prometheus
-	$(OPEN) http://localhost:9090
+k8s-logs-loki: ## Tail loki pod logs
+	kubectl logs -f deployment/loki -n gateway-demo
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
+k8s-logs-tempo: ## Tail tempo pod logs
+	kubectl logs -f deployment/tempo -n gateway-demo
 
-token: ## Get a test token (regular-user)
+k8s-logs-otel-collector: ## Tail otel-collector pod logs
+	kubectl logs -f deployment/otel-collector -n gateway-demo
+
+# ── Tokens ────────────────────────────────────────────────────────────────────
+
+token: ## Get a test token (regular-user / user123)
 	@curl -s -X POST \
-		http://localhost:8180/realms/demo-realm/protocol/openid-connect/token \
+		http://localhost:30180/realms/demo-realm/protocol/openid-connect/token \
 		-H "Content-Type: application/x-www-form-urlencoded" \
 		-d "client_id=gateway-client" \
 		-d "grant_type=password" \
@@ -144,15 +140,27 @@ token: ## Get a test token (regular-user)
 		-d "password=user123" \
 		-d "scope=openid"
 
-token-admin: ## Get a test token (admin-user)
+token-admin: ## Get a test token (admin-user / admin123)
 	@curl -s -X POST \
-		http://localhost:8180/realms/demo-realm/protocol/openid-connect/token \
+		http://localhost:30180/realms/demo-realm/protocol/openid-connect/token \
 		-H "Content-Type: application/x-www-form-urlencoded" \
 		-d "client_id=gateway-client" \
 		-d "grant_type=password" \
 		-d "username=admin-user" \
 		-d "password=admin123" \
-		-d "scope=openid" | python3 -m json.tool
+		-d "scope=openid" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])"
 
-clean: down clean-java ## Stop infra and clean all build artifacts
-	@echo "$(GREEN)Clean complete.$(RESET)"
+# ── Test requests ─────────────────────────────────────────────────────────────
+
+test-post: ## Test POST /booking/bookings (requires TOKEN env var)
+	@curl -i -X POST http://localhost:30080/booking/bookings \
+		-H "Authorization: Bearer $(TOKEN)" \
+		-H "Content-Type: application/json" \
+		-d '{"eventId":"event-123","userName":"Demo User"}'
+
+test-get: ## Test GET /booking/bookings/123 (requires TOKEN env var)
+	@curl -i -X GET http://localhost:30080/booking/bookings/123 \
+		-H "Authorization: Bearer $(TOKEN)"
+
+test-health: ## Test edge-service health
+	@curl -s http://localhost:30080/actuator/health | python3 -m json.tool

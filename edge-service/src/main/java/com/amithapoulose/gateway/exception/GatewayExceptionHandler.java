@@ -30,6 +30,7 @@ public class GatewayExceptionHandler implements ErrorWebExceptionHandler {
 
     @Override
     public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
+        log.info("Handling gateway exception for path");
         HttpStatus status = resolveStatus(ex);
         String traceId = exchange.getAttributes()
                 .getOrDefault("X-Trace-Id", "unknown").toString();
@@ -50,6 +51,7 @@ public class GatewayExceptionHandler implements ErrorWebExceptionHandler {
     }
 
     private HttpStatus resolveStatus(Throwable ex) {
+        log.info("Resolving HTTP status for exception");
         if (ex instanceof ResponseStatusException rse) {
             HttpStatus resolved = HttpStatus.resolve(rse.getStatusCode().value());
             return resolved != null ? resolved : HttpStatus.INTERNAL_SERVER_ERROR;

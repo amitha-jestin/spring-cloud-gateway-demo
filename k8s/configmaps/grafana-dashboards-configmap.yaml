@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: gateway-demo
+data:
+  gateway-dashboard.json: |
+    {
+      "title": "Edge-Service — Cross-Cutting Concerns",
+      "uid": "Edge-service-dashboard",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "tags": ["gateway", "resilience", "security"],
+      "panels": [
+        {
+          "id": 1, "title": "Request Rate (req/sec)", "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"edge-service\"}[1m])) by (uri)",
+            "legendFormat": "{{uri}}" }]
+        },
+        {
+          "id": 2, "title": "Error Rate (%)", "type": "timeseries",
+          "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"edge-service\",status=~\"4..|5..\"}[1m])) / sum(rate(http_server_requests_seconds_count{application=\"edge-service\"}[1m])) * 100",
+            "legendFormat": "Error Rate %" }]
+        },
+        {
+          "id": 3, "title": "P99 Latency (ms)", "type": "timeseries",
+          "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{application=\"edge-service\"}[1m])) by (le, uri)) * 1000",
+            "legendFormat": "P99 {{uri}}" }]
+        },
+        {
+          "id": 4, "title": "Circuit Breaker State", "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "resilience4j_circuitbreaker_state{application=\"edge-service\"}",
+            "legendFormat": "{{name}} — {{state}}" }],
+          "fieldConfig": { "defaults": { "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "CLOSED", "color": "green" },
+              "1": { "text": "OPEN", "color": "red" },
+              "2": { "text": "HALF_OPEN", "color": "yellow" } } } ] } }
+        },
+        {
+          "id": 5, "title": "Rate Limited Requests (429)", "type": "timeseries",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"edge-service\",status=\"429\"}[1m]))",
+            "legendFormat": "429 req/sec" }]
+        },
+        {
+          "id": 6, "title": "JVM Memory Usage", "type": "timeseries",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "jvm_memory_used_bytes{application=\"edge-service\"}",
+            "legendFormat": "{{area}} — {{id}}" }]
+        },
+        {
+          "id": 7, "title": "Edge Service Logs", "type": "logs",
+          "gridPos": { "x": 0, "y": 24, "w": 24, "h": 10 },
+          "targets": [{ "datasource": "Loki",
+            "expr": "{app=\"edge-service\"} | json | line_format \"{{.level}} {{.message}}\"" }]
+        }
+      ]
+    }
+
+  booking-service-dashboard.json: |
+    {
+      "title": "Booking Service — Metrics & Logs",
+      "uid": "booking-service-dashboard",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "tags": ["booking-service"],
+      "panels": [
+        {
+          "id": 1, "title": "Request Rate (req/sec)", "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"booking-service\"}[1m])) by (uri, method)",
+            "legendFormat": "{{method}} {{uri}}" }]
+        },
+        {
+          "id": 2, "title": "Error Rate (%)", "type": "timeseries",
+          "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "sum(rate(http_server_requests_seconds_count{application=\"booking-service\",status=~\"4..|5..\"}[1m])) / sum(rate(http_server_requests_seconds_count{application=\"booking-service\"}[1m])) * 100",
+            "legendFormat": "Error %" }]
+        },
+        {
+          "id": 3, "title": "P95 / P99 Latency (ms)", "type": "timeseries",
+          "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+          "targets": [
+            { "datasource": "Prometheus",
+              "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"booking-service\"}[1m])) by (le)) * 1000",
+              "legendFormat": "P95" },
+            { "datasource": "Prometheus",
+              "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{application=\"booking-service\"}[1m])) by (le)) * 1000",
+              "legendFormat": "P99" }
+          ]
+        },
+        {
+          "id": 4, "title": "JVM Heap Usage", "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "jvm_memory_used_bytes{application=\"booking-service\", area=\"heap\"}",
+            "legendFormat": "Heap — {{id}}" }]
+        },
+        {
+          "id": 5, "title": "Active Threads", "type": "timeseries",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [{ "datasource": "Prometheus",
+            "expr": "jvm_threads_live_threads{application=\"booking-service\"}",
+            "legendFormat": "Live Threads" }]
+        },
+        {
+          "id": 6, "title": "Booking Service Logs", "type": "logs",
+          "gridPos": { "x": 0, "y": 16, "w": 24, "h": 10 },
+          "targets": [{ "datasource": "Loki", "expr": "{app=\"booking-service\"} | json" }]
+        }
+      ]
+    }

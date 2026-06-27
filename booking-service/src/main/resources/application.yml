@@ -31,9 +31,10 @@ management:
     propagation:
       type: w3c
   otlp:
-    tracing:
+    traces:
       endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
-
+    logs:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/logs}
 # ── Logging ────────────────────────────────────────────────────────────────
 logging:
   level:

@@ -4,9 +4,11 @@ import com.amithapoulose.booking.model.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.nio.file.attribute.UserPrincipal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -14,16 +16,21 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * BookingController — REST resource for ticket booking operations.
- *
- * Authorization is enforced via gateway-propagated headers (not JWT).
- * The gateway validated the JWT; this service trusts its headers.
- *
- * POST /booking/bookings   — requires X-User-Id header (any authenticated user)
- * GET  /booking/bookings/{id} — requires X-User-Id header
- * GET  /booking/bookings/user/{userId} — user can only see own bookings
- * DELETE /booking/bookings/{id}/cancel — requires X-User-Id header
+ * Demo Booking Service
+
+ * This service is intentionally simplified for demonstration purposes.
+
+ * Security Model:
+ * - JWT authentication and validation is handled exclusively by the API Gateway
+ * - This service does NOT validate JWT tokens
+ * - Authorization is NOT implemented here
+ * Purpose:
+ * - Demonstrate request flow through API Gateway
+ * - Provide a lightweight downstream microservice example
+
+ * ⚠️ This is NOT a production-ready security model and should not be used as-is in real systems.
  */
+
 @Slf4j
 @RestController
 @RequestMapping("/booking/bookings")
@@ -33,20 +40,10 @@ public class BookingController {
     @PostMapping
     public ResponseEntity<?> initiateBooking(
             @RequestBody BookingRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) String userId,
-            @RequestHeader(value = "X-Trace-Id", required = false) String traceId) {
+            @RequestHeader(value = "X-Trace-Id", required = false) String traceId
+            ) {
 
-        log.info("POST /booking/bookings eventId={} userId={} traceId={}",
-                request.eventId(), userId, traceId);
-
-        // Authorization — X-User-Id must be present (injected by gateway after JWT validation)
-        if (userId == null || userId.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError(
-                    Instant.now().toString(), 401, "Unauthorized",
-                    "User identity required. Ensure request passes through the API Gateway.",
-                    "/booking/bookings"));
-        }
-
+        String userId = "123"; // In a real scenario, this would be extracted from the request header or security context
 
         log.info("Booking confirmed: bookingId={} userId={}", "243", userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(new Booking(
@@ -56,17 +53,11 @@ public class BookingController {
     @GetMapping("/{id}")
     public ResponseEntity<?> getBookingStatus(
             @PathVariable String id,
-            @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-Trace-Id", required = false) String traceId) {
 
+        String userId = "123"; // In a real scenario, this would be extracted from the request header or security context
+
         log.info("GET /booking/bookings/{} userId={} traceId={}", id, userId, traceId);
-
-        if (userId == null || userId.isBlank()) {
-            return ResponseEntity.status(401).body(new ApiError(
-                    Instant.now().toString(), 401, "Unauthorized",
-                    "User identity required.", "/booking/bookings/" + id));
-        }
-
 
         return ResponseEntity.ok(new Booking(id, "event-123", userId, "Demo User"));
     }

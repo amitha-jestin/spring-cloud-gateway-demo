@@ -3,6 +3,8 @@ package com.amithapoulose.gateway.filter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -37,20 +39,21 @@ import java.time.Instant;
  */
 @Slf4j
 @Component
-public class AuditLoggingFilter implements GatewayFilter {
+public class AuditLoggingFilter implements GlobalFilter, Ordered {
 
     private static final long SLOW_REQUEST_THRESHOLD_MS = 3000;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        log.info("AUDIT_LOGGING_FILTER: Processing request for path: {}", exchange.getRequest().getPath().value());
         long startTime = Instant.now().toEpochMilli();
         String traceId = exchange.getAttributes()
                 .getOrDefault(TraceIdFilter.TRACE_ID_HEADER, "unknown").toString();
 
-        String userId   = exchange.getRequest().getHeaders().getFirst("X-User-Id");
+        String userId = exchange.getRequest().getHeaders().getFirst("X-User-Id");
         String clientIp = getClientIp(exchange);
-        String method   = exchange.getRequest().getMethod().name();
-        String path     = exchange.getRequest().getPath().value();
+        String method = exchange.getRequest().getMethod().name();
+        String path = exchange.getRequest().getPath().value();
 
         return chain.filter(exchange).doFinally(signal -> {
             long durationMs = Instant.now().toEpochMilli() - startTime;
@@ -99,5 +102,10 @@ public class AuditLoggingFilter implements GatewayFilter {
 
     private String nullSafe(String v) {
         return v != null ? v : "anonymous";
+    }
+
+    @Override
+    public int getOrder() {
+        return -1; // Run after all other filters
     }
 }

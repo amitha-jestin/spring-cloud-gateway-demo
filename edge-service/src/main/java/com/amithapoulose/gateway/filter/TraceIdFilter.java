@@ -3,6 +3,8 @@ package com.amithapoulose.gateway.filter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -28,13 +30,16 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
-public class TraceIdFilter implements GatewayFilter {
+public class TraceIdFilter implements GlobalFilter, Ordered {
 
     public static final String TRACE_ID_HEADER = "X-Trace-Id";
     public static final String REQUEST_ID_HEADER = "X-Request-Id";
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+
+        System.out.println("HELLOOOOOOOO");
+        log.info("TRACE_ID_FILTER: Processing request for path: {}", exchange.getRequest().getPath().value());
         String traceId = exchange.getRequest().getHeaders().getFirst(TRACE_ID_HEADER);
         if (traceId == null || traceId.isBlank()) {
             traceId = UUID.randomUUID().toString();
@@ -57,6 +62,12 @@ public class TraceIdFilter implements GatewayFilter {
         mutatedExchange.getAttributes().put(TRACE_ID_HEADER, finalTraceId);
 
         log.debug("Trace ID: {}", finalTraceId);
+        log.info("TRACE_ID_FILTER: Trace ID {} injected into request and response headers.", finalTraceId);
         return chain.filter(mutatedExchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return -2; // Run first
     }
 }
